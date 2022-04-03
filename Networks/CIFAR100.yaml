@@ -1,0 +1,100 @@
+Network:
+  epochs: 2000
+  batch_size: 50
+  n_steps: 12
+  dataset: "CIFAR100"
+  data_path: "../../../../datasets/cifar100"
+  log_path: "logs/cifar100"
+  optimizer: "AdamW"
+  lr: 0.00005
+  amp: True
+  loss: "count"
+  gradient_type: "exponential"
+  pooling_type: "adjusted_avg"
+  n_class: 100
+  desired_count: 12
+  undesired_count: 1
+  tau_m: 10
+  tau_s: 6
+  tau_grad: 5
+  max_dudt_inv: 123456789
+
+Layers:
+  conv_1:
+    type: "conv"   # 32*32  28*28
+    in_channels: 3
+    out_channels: 128
+    kernel_size: 3
+    padding: 1
+    threshold: 1
+
+  conv_2:
+    type: "conv" # 32*32  28*28
+    in_channels: 128
+    out_channels: 128
+    kernel_size: 3
+    padding: 1
+    threshold: 1
+
+  pooling_1:
+    type: "pooling"
+    kernel_size: 2
+
+  conv_3:
+    type: "conv" # 16*16  14*14
+    in_channels: 128
+    out_channels: 256
+    kernel_size: 3
+    padding: 1
+    threshold: 1
+
+  conv_4:
+    type: "conv"  # 16*16  14*14
+    in_channels: 256
+    out_channels: 256
+    kernel_size: 3
+    padding: 1
+    threshold: 1
+
+  pooling_2:
+    type: "pooling"
+    kernel_size: 2
+  
+  conv_5:
+    type: "conv" # 8*8  7*7
+    in_channels: 256
+    out_channels: 512
+    kernel_size: 3
+    padding: 1
+    threshold: 1
+
+  conv_6:
+    type: "conv"  # 8*8  7*7
+    in_channels: 512
+    out_channels: 512
+    kernel_size: 3
+    padding: 1
+    threshold: 1
+
+  pooling_3:
+    type: "pooling"
+    kernel_size: 2
+
+  FC_1:
+    type: "linear"
+    n_inputs: 8192
+    n_outputs: 1024
+    threshold: 1
+  
+  FC_2:
+    type: "linear"
+    n_inputs: 1024
+    n_outputs: 1024
+    threshold: 1
+
+  output:
+    type: "linear"
+    n_inputs: 1024
+    n_outputs: 100
+    threshold: 1
+

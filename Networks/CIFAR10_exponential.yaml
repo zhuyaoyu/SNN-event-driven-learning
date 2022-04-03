@@ -1,0 +1,135 @@
+Network:
+  epochs: 300
+  batch_size: 50
+  n_steps: 12
+  dataset: "CIFAR10"
+  data_path: "../../datasets/cifar10"
+  # data_path: "../../../../datasets/cifar10"
+  log_path: "logs/cifar10_exponential"
+  optimizer: "AdamW"
+  lr: 0.0005
+  loss: "TET"
+  gradient_type: "exponential"
+  pooling_type: "adjusted_avg"
+  n_class: 10
+  desired_count: 12
+  undesired_count: 1
+  tau_m: 7
+  tau_s: 4
+  tau_grad: 3.5
+  max_dudt_inv: 123456789
+
+Layers:
+  conv_1:
+    type: "conv"   # 32*32  28*28
+    in_channels: 3
+    out_channels: 128
+    kernel_size: 3
+    padding: 1
+    threshold: 1
+
+  dropout_1:
+    type: "dropout"
+    p: 0.2
+
+  conv_2:
+    type: "conv" # 32*32  28*28
+    in_channels: 128
+    out_channels: 128
+    kernel_size: 3
+    padding: 1
+    threshold: 1
+
+  pooling_1:
+    type: "pooling"
+    kernel_size: 2
+    threshold: 0.5
+
+  dropout_2:
+    type: "dropout"
+    p: 0.2
+
+  conv_3:
+    type: "conv" # 16*16  14*14
+    in_channels: 128
+    out_channels: 256
+    kernel_size: 3
+    padding: 1
+    threshold: 1
+
+  dropout_3:
+    type: "dropout"
+    p: 0.2
+
+  conv_4:
+    type: "conv"  # 16*16  14*14
+    in_channels: 256
+    out_channels: 256
+    kernel_size: 3
+    padding: 1
+    threshold: 1
+
+  pooling_2:
+    type: "pooling"
+    kernel_size: 2
+    threshold: 0.5
+ 
+  dropout_4:
+    type: "dropout"
+    p: 0.2
+ 
+  conv_5:
+    type: "conv" # 8*8  7*7
+    in_channels: 256
+    out_channels: 512
+    kernel_size: 3
+    padding: 1
+    threshold: 1
+
+  dropout_5:
+    type: "dropout"
+    p: 0.2
+
+  conv_6:
+    type: "conv"  # 8*8  7*7
+    in_channels: 512
+    out_channels: 512
+    kernel_size: 3
+    padding: 1
+    threshold: 1
+
+  pooling_3:
+    type: "pooling"
+    kernel_size: 2
+    threshold: 0.5
+
+  dropout_6:
+      type: "dropout"
+      p: 0.2
+
+  FC_1:
+    type: "linear"
+    n_inputs: 8192
+    n_outputs: 1024
+    threshold: 1
+
+  dropout_7:
+    type: "dropout"
+    p: 0.2
+
+  FC_2:
+    type: "linear"
+    n_inputs: 1024
+    n_outputs: 1024
+    threshold: 1
+  
+  dropout_8:
+    type: "dropout"
+    p: 0.2
+
+  output:
+    type: "linear"
+    n_inputs: 1024
+    n_outputs: 10
+    threshold: 1
+
