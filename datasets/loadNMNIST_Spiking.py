@@ -10,12 +10,12 @@ from os.path import isfile, join
 
 
 class NMNIST(Dataset):
-    def __init__(self, dataset_path, n_steps, transform=None):
+    def __init__(self, dataset_path, T, transform=None):
         self.path = dataset_path
         self.samples = []
         self.labels = []
         self.transform = transform
-        self.n_steps = n_steps
+        self.T = T
         for i in tqdm(range(10)):
             sample_dir = dataset_path + '/' + str(i) + '/'
             for f in listdir(sample_dir):
@@ -28,7 +28,7 @@ class NMNIST(Dataset):
         filename = self.samples[index]
         label = self.labels[index]
 
-        data = np.zeros((2, 34, 34, self.n_steps))
+        data = np.zeros((2, 34, 34, self.T))
 
         f = open(filename, 'r')
         lines = f.readlines()
@@ -46,7 +46,7 @@ class NMNIST(Dataset):
             y = pos % 34
             x = int(math.floor(pos/34))
             for i in range(1, len(line)):
-                if line[i] >= self.n_steps:
+                if line[i] >= self.T:
                     break
                 data[channel, x, y, line[i]-1] = 1
         if self.transform:
@@ -65,14 +65,14 @@ class NMNIST(Dataset):
 
 
 def get_nmnist(data_path, network_config):
-    n_steps = network_config['n_steps']
+    T = network_config['n_steps']
     print("loading NMNIST")
     if not os.path.exists(data_path):
         os.mkdir(data_path)
     train_path = data_path + '/Train'
     test_path = data_path + '/Test'
     
-    trainset = NMNIST(train_path, n_steps)
-    testset = NMNIST(test_path, n_steps)
+    trainset = NMNIST(train_path, T)
+    testset = NMNIST(test_path, T)
     
     return trainset, testset

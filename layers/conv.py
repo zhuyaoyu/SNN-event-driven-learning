@@ -125,7 +125,6 @@ class ConvFunc(torch.autograd.Function):
         ctx.save_for_backward(delta_u, delta_u_t, inputs, outputs, weight.to(inputs), torch.tensor(stride)[0],
                               torch.tensor(padding)[0], torch.tensor(dilation)[0], torch.tensor(groups))
 
-        assert((outputs * (1 - outputs) == 0).all())
         return outputs
 
     @staticmethod

@@ -79,6 +79,8 @@ def train(network, trainloader, opti, epoch, states, err):
 
         if len(inputs.shape) < 5:
             inputs = inputs.unsqueeze_(0).repeat(T, 1, 1, 1, 1)
+        else:
+            inputs = inputs.permute(4,0,1,2,3)
         # forward pass
         labels, inputs = (x.to(glv.rank) for x in (labels, inputs))
         if network_config['amp']:
@@ -178,6 +180,8 @@ def test(network, testloader, epoch, states, log_dir):
         batch_idx += 1
         if len(inputs.shape) < 5:
             inputs = inputs.unsqueeze_(0).repeat(T, 1, 1, 1, 1)
+        else:
+            inputs = inputs.permute(4,0,1,2,3)
         # forward pass
         labels = labels.to(glv.rank)
         inputs = inputs.to(glv.rank)
@@ -292,6 +296,8 @@ if __name__ == '__main__':
         T = params['Network']['n_steps']
         if len(inputs.shape) < 5:
             inputs = inputs.unsqueeze_(0).repeat(T, 1, 1, 1, 1)
+        else:
+            inputs = inputs.permute(4,0,1,2,3)
         cnns.initialize(net, inputs)
         epoch_start = 1
         print("Network initialized")
