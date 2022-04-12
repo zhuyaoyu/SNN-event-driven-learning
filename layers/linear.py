@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import global_v as glv
-from layers.functions import neuron_forward, neuron_backward
+from layers.neuron import neuron_forward, neuron_backward
 from torch.cuda.amp import custom_fwd, custom_bwd
 
 
@@ -27,8 +27,8 @@ class LinearLayer(nn.Linear):
         else:
             raise Exception('outFeatures should not be more than 1 dimesnion. It was: {}'.format(out_features.shape))
 
-        super(LinearLayer, self).__init__(n_inputs, n_outputs, bias=False, device=torch.device(glv.rank))
-
+        super(LinearLayer, self).__init__(n_inputs, n_outputs, bias=False)
+        self.weight = torch.nn.Parameter(self.weight.cuda(), requires_grad=True)
 
         print("linear")
         print(self.name)
@@ -46,7 +46,7 @@ class LinearLayer(nn.Linear):
         config_n = glv.network_config
         theta_m = 1 / config_n['tau_m']
         theta_s = 1 / config_n['tau_s']
-        theta_grad = 1 / config_n['tau_grad'] if config_n['gradient_type'] == 'exponential' else None
+        theta_grad = 1 / config_n['tau_grad'] if config_n['gradient_type'] == 'exponential' else -123456789  #instead of None
         threshold = self.layer_config['threshold']
         y = LinearFunc.apply(x, self.weight, (theta_m, theta_s, theta_grad, threshold), labels)
         return y
@@ -72,10 +72,9 @@ class LinearFunc(torch.autograd.Function):
         in_I = torch.matmul(inputs, weight.t())
 
         T, n_batch, N = in_I.shape
-        theta_m, theta_s, theta_grad, threshold = config
+        theta_m, theta_s, theta_grad, threshold = torch.tensor(config)
         assert (theta_m != theta_s)
-
-        u_last, syn_m, syn_s, syn_grad, delta_u, delta_u_t, outputs = neuron_forward(in_I, config)
+        delta_u, delta_u_t, outputs = neuron_forward(in_I, config)
 
         if labels is not None:
             glv.outputs_raw = outputs.clone()
@@ -87,8 +86,8 @@ class LinearFunc(torch.autograd.Function):
             # i1, i2, labels = i1[unspiked], i2[unspiked], labels[unspiked]
 
             outputs[i1, i2, labels] = (delta_u[i1, i2, labels] != 0).to(outputs)
-            delta_u[i1, i2, labels] = torch.maximum(delta_u[i1, i2, labels], torch.tensor(theta_s).to(outputs))
-            delta_u_t[i1, i2, labels] = torch.maximum(delta_u_t[i1, i2, labels], torch.tensor(theta_s).to(outputs))
+            delta_u[i1, i2, labels] = torch.maximum(delta_u[i1, i2, labels], theta_s.to(outputs))
+            delta_u_t[i1, i2, labels] = torch.maximum(delta_u_t[i1, i2, labels], theta_s.to(outputs))
 
         ctx.save_for_backward(delta_u, delta_u_t, inputs, outputs, weight)
 

@@ -19,11 +19,11 @@ class DropoutLayer(nn.Dropout3d):
         ndim = len(x.shape)
         if ndim == 3:
             T, n_batch, N = x.shape
-            result = f.dropout3d(x.permute(1,2,0).reshape((n_batch, N, 1, 1, T)), self.p, self.training, self.inplace)
+            result = f.dropout2d(x.permute(1,2,0).reshape((n_batch, N, 1, T)), self.p, self.training, self.inplace)
             return result.reshape((n_batch, N, T)).permute(2,0,1)
         elif ndim == 5:
             T, n_batch, C, H, W = x.shape
-            result = f.dropout3d(x.permute(1,2,3,4,0).reshape((n_batch, C * H, W, 1, T)), self.p, self.training, self.inplace)
+            result = f.dropout2d(x.permute(1,2,3,4,0).reshape((n_batch, C, H*W, T)), self.p, self.training, self.inplace)
             return result.reshape((n_batch, C, H, W, T)).permute(4,0,1,2,3)
         else:
             raise("In dropout layer, dimension of input is not 3 or 5!")

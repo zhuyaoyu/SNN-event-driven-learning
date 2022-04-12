@@ -58,7 +58,7 @@ class NMNIST(Dataset):
         # Input spikes are reshaped to ignore the spatial dimension and the neurons are placed in channel dimension.
         # The spatial dimension can be maintained and used as it is.
         # It requires different definition of the dense layer.
-        return data, label
+        return data.permute(3,0,1,2), label
 
     def __len__(self):
         return len(self.samples)
@@ -74,5 +74,5 @@ def get_nmnist(data_path, network_config):
     
     trainset = NMNIST(train_path, T)
     testset = NMNIST(test_path, T)
-    
+
     return trainset, testset

@@ -9,7 +9,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from network_parser import parse
-from datasets import loadMNIST, loadCIFAR10, loadCIFAR100, loadFashionMNIST, loadNMNIST_Spiking
+from datasets import loadMNIST, loadCIFAR10, loadCIFAR100, loadFashionMNIST, loadSpiking
 import cnns
 from utils import learningStats
 import layers.losses as losses
@@ -27,15 +27,7 @@ multigpu = False
 
 
 def get_loss(network_config, err, outputs, labels):
-    if network_config['loss'] == "count":
-        # set target signal
-        desired_count = network_config['desired_count']
-        undesired_count = network_config['undesired_count']
-        targets = torch.ones_like(outputs[0]) * undesired_count
-        for i in range(len(labels)):
-            targets[i, labels[i]] = desired_count
-        loss = err.spike_count(outputs, targets)
-    elif network_config['loss'] == "kernel":
+    if network_config['loss'] in ['kernel', 'timing']:
         targets = torch.zeros_like(outputs)
         device = torch.device(glv.rank)
         if T >= 8:
@@ -45,17 +37,33 @@ def get_loss(network_config, err, outputs, labels):
         else:
             desired_spikes = torch.ones(T, device=device)
             desired_spikes[0] = 0
-        desired_spikes = desired_spikes.view(T, 1, 1)
         for i in range(len(labels)):
             targets[..., i, labels[i]] = desired_spikes
+
+    if network_config['loss'] == "count":
+        # set target signal
+        desired_count = network_config['desired_count']
+        undesired_count = network_config['undesired_count']
+        targets = torch.ones_like(outputs[0]) * undesired_count
+        for i in range(len(labels)):
+            targets[i, labels[i]] = desired_count
+        loss = err.spike_count(outputs, targets)
+    elif network_config['loss'] == "kernel":
         loss = err.spike_kernel(outputs, targets)
     elif network_config['loss'] == "TET":
         # set target signal
         loss = err.spike_TET(outputs, labels)
+    elif network_config['loss'] == "timing":
+        loss = err.spike_timing(outputs, targets, labels)
     else:
         raise Exception('Unrecognized loss function.')
 
     return loss.to(glv.rank)
+
+
+def readout(output):
+    output *= 1.1 - torch.arange(T, device=torch.device(glv.rank)).reshape(T, 1, 1) / T / 10
+    return torch.sum(output, dim=0).detach()
 
 
 def train(network, trainloader, opti, epoch, states, err):
@@ -63,7 +71,6 @@ def train(network, trainloader, opti, epoch, states, err):
     cnt_oneof, cnt_unique = 0, 0
     network_config, layers_config = glv.network_config, glv.layers_config
     T = network_config['n_steps']
-    n_class = network_config['n_class']
     batch_size = network_config['batch_size']
     scaler = GradScaler()
     start_time = datetime.now()
@@ -80,7 +87,7 @@ def train(network, trainloader, opti, epoch, states, err):
         if len(inputs.shape) < 5:
             inputs = inputs.unsqueeze_(0).repeat(T, 1, 1, 1, 1)
         else:
-            inputs = inputs.permute(4,0,1,2,3)
+            inputs = inputs.permute(1,0,2,3,4)
         # forward pass
         labels, inputs = (x.to(glv.rank) for x in (labels, inputs))
         if network_config['amp']:
@@ -112,8 +119,7 @@ def train(network, trainloader, opti, epoch, states, err):
         backward_time += (datetime.now() - t0).total_seconds()
         t0 = datetime.now()
 
-        glv.outputs_raw *= 1.1 - torch.arange(T, device=torch.device(glv.rank)).reshape(T, 1, 1) / T / 10
-        spike_counts = torch.sum(glv.outputs_raw, dim=0).detach()
+        spike_counts = readout(glv.outputs_raw)
         predicted = torch.argmax(spike_counts, axis=1)
         train_loss += torch.sum(loss).item()
         total += len(labels)
@@ -136,7 +142,7 @@ def train(network, trainloader, opti, epoch, states, err):
             states.print(epoch, batch_idx, (datetime.now() - start_time).total_seconds())
             print('Time consumed on loading data = %.2f, forward = %.2f, backward = %.2f, other = %.2f'
                   % (data_time, forward_time, backward_time, other_time))
-            print('Time consumed on manual conv grad = %.2f' % (glv.time_use))
+            print('Time consumed on recorded interval = %.2f' % (glv.time_use))
             data_time, forward_time, backward_time, other_time, glv.time_use = 0, 0, 0, 0, 0
 
             grad_std = dict()
@@ -181,15 +187,14 @@ def test(network, testloader, epoch, states, log_dir):
         if len(inputs.shape) < 5:
             inputs = inputs.unsqueeze_(0).repeat(T, 1, 1, 1, 1)
         else:
-            inputs = inputs.permute(4,0,1,2,3)
+            inputs = inputs.permute(1,0,2,3,4)
         # forward pass
         labels = labels.to(glv.rank)
         inputs = inputs.to(glv.rank)
         with torch.no_grad():
             outputs = network(inputs, None, epoch, False)
 
-        outputs *= 1.1 - torch.arange(T, device=torch.device(glv.rank)).reshape(T, 1, 1) / T / 10
-        spike_counts = torch.sum(outputs, dim=0).detach().cpu().numpy()
+        spike_counts = readout(outputs).cpu().numpy()
         predicted = np.argmax(spike_counts, axis=1)
         labels = labels.cpu().numpy()
         y_pred.append(predicted)
@@ -266,10 +271,12 @@ if __name__ == '__main__':
 
     data_path = os.path.expanduser(params['Network']['data_path'])
     dataset_func = {"MNIST": loadMNIST.get_mnist,
-                    "NMNIST_Spiking": loadNMNIST_Spiking.get_nmnist,
+                    "NMNIST": loadSpiking.get_nmnist,
                     "FashionMNIST": loadFashionMNIST.get_fashionmnist,
                     "CIFAR10": loadCIFAR10.get_cifar10,
-                    "CIFAR100": loadCIFAR100.get_cifar100}
+                    "CIFAR100": loadCIFAR100.get_cifar100,
+                    "DVS128Gesture": loadSpiking.get_dvs128_gesture,
+                    "CIFAR10DVS": loadSpiking.get_cifar10_dvs}
     try:
         trainset, testset = dataset_func[params['Network']['dataset']](data_path, params['Network'])
     except:
@@ -283,7 +290,7 @@ if __name__ == '__main__':
         train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
     test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
-    net = cnns.Network(list(train_loader.dataset[0][0].shape)).to(glv.rank)
+    net = cnns.Network(list(train_loader.dataset[0][0].shape[-3:])).to(glv.rank)
     if args.checkpoint is not None:
         checkpoint_path = args.checkpoint
         checkpoint = torch.load(checkpoint_path, map_location='cuda:0')
@@ -297,8 +304,9 @@ if __name__ == '__main__':
         if len(inputs.shape) < 5:
             inputs = inputs.unsqueeze_(0).repeat(T, 1, 1, 1, 1)
         else:
-            inputs = inputs.permute(4,0,1,2,3)
-        cnns.initialize(net, inputs)
+            inputs = inputs.permute(1,0,2,3,4)
+        with torch.no_grad():
+            cnns.initialize(net, inputs)
         epoch_start = 1
         print("Network initialized")
 

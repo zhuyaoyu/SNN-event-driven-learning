@@ -16,18 +16,22 @@ def init(config_n, config_l):
     global T, syn_a, delta_syn_a, tau_s, tau_m, grad_rec, outputs_raw
     global rank, network_config, layers_config, time_use
     network_config, layers_config = config_n, config_l
+
     if 'loss_reverse' not in network_config.keys():
         network_config['loss_reverse'] = True
     print('Whether loss is reversed: ', network_config['loss_reverse'])
     if 'amp' not in network_config.keys():
         network_config['amp'] = False
+    if 'backend' not in network_config.keys():
+        network_config['backend'] = 'python'
 
-    T, tau_s, tau_m, grad_type = (config_n[x] for x in ('n_steps', 'tau_s', 'tau_m', 'gradient_type'))
-    assert(grad_type in ['original', 'nonnegative', 'exponential'])
     if 'max_dudt_inv' not in network_config:
         network_config['max_dudt_inv'] = 123456789
     if 'avg_spike_init' not in network_config:
         network_config['avg_spike_init'] = 1
+
+    T, tau_s, tau_m, grad_type = (config_n[x] for x in ('n_steps', 'tau_s', 'tau_m', 'gradient_type'))
+    assert(grad_type in ['original', 'nonnegative', 'exponential'])
 
     syn_a, delta_syn_a = (torch.zeros(T + 1, device=torch.device(rank)) for _ in range(2))
     theta_m, theta_s = 1 / tau_m, 1 / tau_s

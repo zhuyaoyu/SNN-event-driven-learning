@@ -1,11 +1,12 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as f
-from layers.functions import neuron_forward, neuron_backward
+from layers.neuron import neuron_forward, neuron_backward
 import global_v as glv
+import torch.backends.cudnn as cudnn
 from torch.utils.cpp_extension import load_inline
-from torch.backends import cudnn
 from torch.cuda.amp import custom_fwd, custom_bwd
+from datetime import datetime
 
 cpp_wrapper = load_inline(
         name='cpp_wrapper',
@@ -75,7 +76,8 @@ class ConvLayer(nn.Conv2d):
             raise Exception('dilation can be either int or tuple of size 2. It was: {}'.format(dilation.shape))
 
         super(ConvLayer, self).__init__(in_features, out_features, kernel, stride, padding, dilation, groups,
-                                        bias=False, device=torch.device(glv.rank))
+                                        bias=False)
+        self.weight = torch.nn.Parameter(self.weight.cuda(), requires_grad=True)
 
         self.in_shape = in_shape
         self.out_shape = [out_features, int((in_shape[1]+2*padding[0]-kernel[0])/stride[0]+1),
@@ -91,7 +93,7 @@ class ConvLayer(nn.Conv2d):
         config_n = glv.network_config
         theta_m = 1 / config_n['tau_m']
         theta_s = 1 / config_n['tau_s']
-        theta_grad = 1 / config_n['tau_grad'] if config_n['gradient_type'] == 'exponential' else None
+        theta_grad = 1 / config_n['tau_grad'] if config_n['gradient_type'] == 'exponential' else -123456789  #instead of None
         threshold = self.layer_config['threshold']
         y = ConvFunc.apply(x, self.weight, (self.bias, self.stride, self.padding, self.dilation, self.groups), (theta_m, theta_s, theta_grad, threshold))
         return y
@@ -120,10 +122,10 @@ class ConvFunc(torch.autograd.Function):
         _, C, H, W = in_I.shape
         in_I = in_I.reshape(T, n_batch, C, H, W)
 
-        u_last, syn_m, syn_s, syn_grad, delta_u, delta_u_t, outputs = neuron_forward(in_I, neuron_config)
+        delta_u, delta_u_t, outputs = neuron_forward(in_I, neuron_config)
 
-        ctx.save_for_backward(delta_u, delta_u_t, inputs, outputs, weight.to(inputs), torch.tensor(stride)[0],
-                              torch.tensor(padding)[0], torch.tensor(dilation)[0], torch.tensor(groups))
+        ctx.save_for_backward(delta_u, delta_u_t, inputs, outputs, weight.to(inputs))
+        ctx.conv_config = conv_config
 
         return outputs
 
@@ -131,9 +133,8 @@ class ConvFunc(torch.autograd.Function):
     @custom_bwd
     def backward(ctx, grad_delta):
         # shape of grad_delta: T * n_batch * C * H * W
-        (delta_u, delta_u_t, inputs, outputs, weight, stride, padding, dilation, groups) = ctx.saved_tensors
-        stride, padding, dilation, groups = map(lambda x: x.item(), [stride, padding, dilation, groups])
-        stride, padding, dilation = map(lambda x: (x,x), [stride, padding, dilation])
+        (delta_u, delta_u_t, inputs, outputs, weight) = ctx.saved_tensors
+        bias, stride, padding, dilation, groups = ctx.conv_config
         grad_delta *= outputs
         # print("sum of dLdt: ", grad_delta.sum().item(), abs(grad_delta).max().item())
 
@@ -142,11 +143,10 @@ class ConvFunc(torch.autograd.Function):
         T, n_batch, C, H, W = grad_delta.shape
         inputs = inputs.reshape(T * n_batch, *inputs.shape[2:])
         grad_in_, grad_w_ = map(lambda x: x.reshape(T * n_batch, C, H, W), [grad_in_, grad_w_])
-        # cudnn.benchmark, cudnn.deterministic, cudnn.allow_tf32
         grad_input = cpp_wrapper.cudnn_convolution_backward_input(inputs.shape, grad_in_.to(weight), weight, padding, stride, dilation, groups,
-                                 False, False, False) * inputs
+                                 cudnn.benchmark, cudnn.deterministic, cudnn.allow_tf32) * inputs
         grad_weight = cpp_wrapper.cudnn_convolution_backward_weight(weight.shape, grad_w_.to(inputs), inputs, padding, stride, dilation, groups,
-                          False, False, False)
+                          cudnn.benchmark, cudnn.deterministic, cudnn.allow_tf32)
 
         # print("sum of dLdt in last layer: ", grad_input.sum().item())
         # print()
