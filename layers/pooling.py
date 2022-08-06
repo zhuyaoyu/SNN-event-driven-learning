@@ -6,7 +6,7 @@ from torch.cuda.amp import custom_fwd, custom_bwd
 
 
 class PoolLayer(nn.Module):
-    def __init__(self, network_config, config, name, in_shape):
+    def __init__(self, network_config, config, name):
         super(PoolLayer, self).__init__()
         self.name = name
         self.layer_config = config
@@ -22,11 +22,11 @@ class PoolLayer(nn.Module):
             raise Exception('kernelSize can only be of 1 or 2 dimension. It was: {}'.format(kernel_size.shape))
 
         self.kernel = kernel
-        self.in_shape = in_shape
-        self.out_shape = [in_shape[0], int(in_shape[1] / kernel[0]), int(in_shape[2] / kernel[1])]
-        print(self.name)
-        print(self.in_shape)
-        print(self.out_shape)
+        # self.in_shape = in_shape
+        # self.out_shape = [in_shape[0], int(in_shape[1] / kernel[0]), int(in_shape[2] / kernel[1])]
+        print('pooling')
+        # print(self.in_shape)
+        # print(self.out_shape)
         print("-----------------------------------------")
 
     def forward(self, x):

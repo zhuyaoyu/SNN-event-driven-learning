@@ -3,18 +3,24 @@ Network:
   batch_size: 50
   n_steps: 5
   dataset: "MNIST"
-  data_path: "../../../../datasets/mnist"
-  log_path: "logs/mnist_original"
+  data_path: "../../datasets/mnist"
+  # data_path: "../../../../datasets/mnist"
+  log_path: "logs/mnist"
+  backend: "cuda"
   optimizer: "AdamW"
   lr: 0.0005
+  weight_decay: 0.0005
+  avg_spike_init: 0.5
   loss: "count"
-  max_dudt_inv: 100
-  gradient_type: "original"
+  gradient_type: "exponential"
+  pooling_type: "adjusted_avg"
   n_class: 10
   desired_count: 5
-  undesired_count: 0
+  undesired_count: 1
   tau_m: 5
   tau_s: 3
+  tau_grad: 2.5
+  max_dudt_inv: 123456789
 
 Layers:
   conv_1:
@@ -22,7 +28,6 @@ Layers:
     in_channels: 1
     out_channels: 15
     kernel_size: 5
-    weight_scale: 1
     padding: 0
     threshold: 1
 
@@ -36,7 +41,6 @@ Layers:
     in_channels: 15
     out_channels: 40
     kernel_size: 5
-    weight_scale: 1
     padding: 0
     threshold: 1
 
@@ -49,7 +53,6 @@ Layers:
     type: "linear"
     n_inputs: 640
     n_outputs: 300
-    weight_scale: 1
     threshold: 1
 
   output:

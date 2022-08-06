@@ -11,11 +11,13 @@ class DropoutLayer(nn.Dropout3d):
         else:
             p = 0.5
         super(DropoutLayer, self).__init__(p, inplace)
-        print(self.name)
+        print('dropout')
         print("p: %.2f" % p)
         print("-----------------------------------------")
 
     def forward(self, x):
+        if self.p <= 0 or self.p >= 1:
+            return x
         ndim = len(x.shape)
         if ndim == 3:
             T, n_batch, N = x.shape

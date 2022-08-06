@@ -1,21 +1,26 @@
 Network:
-  epochs: 100
+  epochs: 120
   batch_size: 50
-  n_steps: 33
-  dataset: "NMNIST_Spiking"
-  data_path: "../../../../datasets/n-mnist/2312_10000_stable"
-  log_path: "logs/n-mnist_original"
+  n_steps: 30
+  dataset: "NMNIST"
+  # data_path: "../../datasets/n_mnist"
+  data_path: "../../../../datasets/n_mnist"
+  log_path: "logs/n-mnist"
+  backend: "cuda"
+  optimizer: "AdamW"
   lr: 0.0005
+  weight_decay: 0.0005
+  avg_spike_init: 2
   loss: "count"
-  gradient_type: "original"
-  pooling_type: "avg"
+  gradient_type: "exponential"
+  pooling_type: "adjusted_avg"
   n_class: 10
-  desired_count: 20
+  desired_count: 15
   undesired_count: 2
   tau_m: 8
   tau_s: 4
   tau_grad: 3
-  max_dudt_inv: 5
+  max_dudt_inv: 123456789
 
 Layers:
   conv_1:

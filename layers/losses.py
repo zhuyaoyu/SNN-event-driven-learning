@@ -53,7 +53,6 @@ class loss_count(torch.autograd.Function):
         desired_count = glv.network_config['desired_count']
         undesired_count = glv.network_config['undesired_count']
         T = output.shape[0]
-        assert (T == glv.T)
         out_count = torch.sum(output, dim=0)
 
         delta = (out_count - target) / T

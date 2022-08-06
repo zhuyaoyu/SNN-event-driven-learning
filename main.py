@@ -8,8 +8,10 @@ from torch.cuda.amp import autocast, GradScaler
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from network_parser import parse
 from datasets import loadMNIST, loadCIFAR10, loadCIFAR100, loadFashionMNIST, loadSpiking
+from datasets.utils import TTFS
 import cnns
 from utils import learningStats
 import layers.losses as losses
@@ -61,22 +63,33 @@ def get_loss(network_config, err, outputs, labels):
     return loss.to(glv.rank)
 
 
-def readout(output):
+def readout(output, T):
     output *= 1.1 - torch.arange(T, device=torch.device(glv.rank)).reshape(T, 1, 1) / T / 10
     return torch.sum(output, dim=0).detach()
+
+
+def preprocess(inputs, network_config):
+    inputs = inputs.to(glv.rank)
+    if network_config['encoding'] == 'TTFS':
+        inputs = torch.stack([TTFS(data, T) for data in inputs], dim=0)
+    if len(inputs.shape) < 5:
+        inputs = inputs.unsqueeze_(0).repeat(T, 1, 1, 1, 1)
+    else:
+        inputs = inputs.permute(1, 0, 2, 3, 4)
+    return inputs
 
 
 def train(network, trainloader, opti, epoch, states, err):
     train_loss, correct, total = 0, 0, 0
     cnt_oneof, cnt_unique = 0, 0
-    network_config, layers_config = glv.network_config, glv.layers_config
-    T = network_config['n_steps']
+    network_config = glv.network_config
     batch_size = network_config['batch_size']
     scaler = GradScaler()
     start_time = datetime.now()
 
     forward_time, backward_time, data_time, other_time, glv.time_use = 0, 0, 0, 0, 0
     t0 = datetime.now()
+    num_batch = len(trainloader)
     batch_idx = 0
     for inputs, labels in trainloader:
         torch.cuda.synchronize()
@@ -84,12 +97,9 @@ def train(network, trainloader, opti, epoch, states, err):
         t0 = datetime.now()
         batch_idx += 1
 
-        if len(inputs.shape) < 5:
-            inputs = inputs.unsqueeze_(0).repeat(T, 1, 1, 1, 1)
-        else:
-            inputs = inputs.permute(1,0,2,3,4)
-        # forward pass
         labels, inputs = (x.to(glv.rank) for x in (labels, inputs))
+        inputs = preprocess(inputs, network_config)
+        # forward pass
         if network_config['amp']:
             with autocast():
                 outputs = network(inputs, labels, epoch, True)
@@ -114,12 +124,12 @@ def train(network, trainloader, opti, epoch, states, err):
             loss.backward()
             clip_grad_norm_(network.parameters(), 1)
             opti.step()
-        (network.module if multigpu else network).weight_clipper()
+        # (network.module if multigpu else network).weight_clipper()
         torch.cuda.synchronize()
         backward_time += (datetime.now() - t0).total_seconds()
         t0 = datetime.now()
 
-        spike_counts = readout(glv.outputs_raw)
+        spike_counts = readout(glv.outputs_raw, T)
         predicted = torch.argmax(spike_counts, axis=1)
         train_loss += torch.sum(loss).item()
         total += len(labels)
@@ -130,27 +140,20 @@ def train(network, trainloader, opti, epoch, states, err):
         states.training.lossSum += loss.to('cpu').data.item()
 
         labels = labels.reshape(-1)
-        idx = torch.arange(batch_size, device=torch.device(glv.rank))
+        idx = torch.arange(labels.shape[0], device=torch.device(glv.rank))
         nspike_label = spike_counts[idx, labels]
         cnt_oneof += torch.sum(nspike_label == torch.max(spike_counts, axis=1).values).item()
         spike_counts[idx, labels] -= 1
         cnt_unique += torch.sum(nspike_label > torch.max(spike_counts, axis=1).values).item()
         spike_counts[idx, labels] += 1
 
-        if (not multigpu or dist.get_rank() == 0) and batch_idx % log_interval == 0:
+        if (not multigpu or dist.get_rank() == 0) and (batch_idx % log_interval == 0 or batch_idx == num_batch):
             # if batch_idx % log_interval == 0:
             states.print(epoch, batch_idx, (datetime.now() - start_time).total_seconds())
             print('Time consumed on loading data = %.2f, forward = %.2f, backward = %.2f, other = %.2f'
                   % (data_time, forward_time, backward_time, other_time))
             print('Time consumed on recorded interval = %.2f' % (glv.time_use))
             data_time, forward_time, backward_time, other_time, glv.time_use = 0, 0, 0, 0, 0
-
-            grad_std = dict()
-            for idx, layer in enumerate((network.module if multigpu else network).layers):
-                if hasattr(layer, 'weight') and layer.weight.requires_grad:
-                    gradd = layer.weight.grad.reshape(-1)
-                    grad_std[layer.name] = gradd.std()
-            print('grad std: ', grad_std)
 
             spike_cnt = dict()
             for i in range(6):
@@ -181,20 +184,18 @@ def test(network, testloader, epoch, states, log_dir):
     time = datetime.now()
     y_pred = []
     y_true = []
+    num_batch = len(testloader)
     batch_idx = 0
     for inputs, labels in testloader:
         batch_idx += 1
-        if len(inputs.shape) < 5:
-            inputs = inputs.unsqueeze_(0).repeat(T, 1, 1, 1, 1)
-        else:
-            inputs = inputs.permute(1,0,2,3,4)
+        inputs = preprocess(inputs, network_config)
         # forward pass
         labels = labels.to(glv.rank)
         inputs = inputs.to(glv.rank)
         with torch.no_grad():
             outputs = network(inputs, None, epoch, False)
 
-        spike_counts = readout(outputs).cpu().numpy()
+        spike_counts = readout(outputs, T).cpu().numpy()
         predicted = np.argmax(spike_counts, axis=1)
         labels = labels.cpu().numpy()
         y_pred.append(predicted)
@@ -204,7 +205,7 @@ def test(network, testloader, epoch, states, log_dir):
 
         states.testing.correctSamples += (predicted == labels).sum().item()
         states.testing.numSamples = total
-        if batch_idx % log_interval == 0:
+        if batch_idx % log_interval == 0 or batch_idx == num_batch:
             states.print(epoch, batch_idx, (datetime.now() - time).total_seconds())
     print()
 
@@ -267,7 +268,7 @@ if __name__ == '__main__':
     torch.cuda.manual_seed_all(args.seed)
     np.random.seed(args.seed)
 
-    glv.init(params['Network'], params['Layers'])
+    glv.init(params['Network'], params['Layers'] if 'Layers' in params.parameters else None)
 
     data_path = os.path.expanduser(params['Network']['data_path'])
     dataset_func = {"MNIST": loadMNIST.get_mnist,
@@ -290,7 +291,14 @@ if __name__ == '__main__':
         train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
     test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
 
-    net = cnns.Network(list(train_loader.dataset[0][0].shape[-3:])).to(glv.rank)
+    if 'model_import' not in glv.network_config:
+        net = cnns.Network(list(train_loader.dataset[0][0].shape[-3:])).to(glv.rank)
+    else:
+        exec(f"from {glv.network_config['model_import']} import Network")
+        net = Network().to(glv.rank)
+        print(net)
+
+    T = params['Network']['t_train']
     if args.checkpoint is not None:
         checkpoint_path = args.checkpoint
         checkpoint = torch.load(checkpoint_path, map_location='cuda:0')
@@ -300,28 +308,28 @@ if __name__ == '__main__':
         print(f'Start training from epoch {epoch_start}.')
     else:
         inputs = torch.stack([train_loader.dataset[i][0] for i in range(batch_size)], dim=0).to(glv.rank)
-        T = params['Network']['n_steps']
-        if len(inputs.shape) < 5:
-            inputs = inputs.unsqueeze_(0).repeat(T, 1, 1, 1, 1)
-        else:
-            inputs = inputs.permute(1,0,2,3,4)
-        with torch.no_grad():
-            cnns.initialize(net, inputs)
+        inputs = preprocess(inputs, glv.network_config)
+        print("Start to initialize.")
+        # initialize weights
+        net.eval()
+        glv.init_flag = True
+        net(inputs, None, None, False)
+        net.train()
+        glv.init_flag = False
         epoch_start = 1
-        print("Network initialized")
 
     error = losses.SpikeLoss().to(glv.rank)  # the loss is not defined here
     if multigpu:
         net = DDP(net, device_ids=[glv.rank], output_device=glv.rank)
-
-    optim_type = params['Network']['optimizer']
+    optim_type, weight_decay, lr = (glv.network_config[x] for x in ('optimizer', 'weight_decay', 'lr'))
     assert(optim_type in ['SGD', 'Adam', 'AdamW'])
-    if optim_type == 'SGD':
-        optimizer = torch.optim.SGD(net.parameters(), lr=params['Network']['lr'])
-    elif optim_type == 'Adam':
-        optimizer = torch.optim.Adam(net.parameters(), lr=params['Network']['lr'], betas=(0.9, 0.999))
-    elif optim_type == 'AdamW':
-        optimizer = torch.optim.AdamW(net.parameters(), lr=params['Network']['lr'], betas=(0.9, 0.999))
+
+    # norm_param, weight_param = net.get_parameters()
+    optim_dict = {'SGD': torch.optim.SGD,
+                  'Adam': torch.optim.Adam,
+                  'AdamW': torch.optim.AdamW}
+    optimizer = optim_dict[optim_type](net.parameters(), lr=lr, weight_decay=weight_decay)
+    lr_scheduler = CosineAnnealingLR(optimizer, T_max=glv.network_config['epochs'])
 
     best_acc = 0
 
@@ -345,6 +353,7 @@ if __name__ == '__main__':
         l_states.testing.reset()
         test_acc, confu_mat = test(net, test_loader, epoch, l_states, log_dir)
         l_states.testing.update()
+        lr_scheduler.step()
 
         confu_mats.append(confu_mat)
         if glv.rank == 0:

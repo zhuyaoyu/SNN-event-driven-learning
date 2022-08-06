@@ -10,6 +10,7 @@ std::vector<torch::Tensor> neuron_forward_cuda(
     const float theta_s,
     const float theta_grad,
     const float threshold,
+    const float is_forward_leaky,
     const float is_grad_exp);
 
 std::vector<torch::Tensor> neuron_backward_cuda(
@@ -36,10 +37,11 @@ std::vector<torch::Tensor> neuron_forward(
     const float theta_s,
     const float theta_grad,
     const float threshold,
+    const float is_forward_leaky,
     const float is_grad_exp) {
 
     CHECK_INPUT(in_I);
-    return neuron_forward_cuda(in_I, theta_m, theta_s, theta_grad, threshold, is_grad_exp);
+    return neuron_forward_cuda(in_I, theta_m, theta_s, theta_grad, threshold, is_forward_leaky, is_grad_exp);
 }
 
 std::vector<torch::Tensor> neuron_backward(

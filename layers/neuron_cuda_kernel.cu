@@ -15,7 +15,8 @@ __global__ void neuron_forward_cuda_kernel(
     scalar_t *__restrict__ delta_u,
     scalar_t *__restrict__ delta_u_t,
     scalar_t *__restrict__ outputs,
-    const float theta_m, const float theta_s, const float theta_grad, const float threshold, const float is_grad_exp,
+    const float theta_m, const float theta_s, const float theta_grad, const float threshold,
+    const float is_forward_leaky, const float is_grad_exp,
     size_t neuron_num, size_t tot_size) {
     
     size_t index = blockIdx.x * blockDim.x + threadIdx.x;
@@ -24,20 +25,24 @@ __global__ void neuron_forward_cuda_kernel(
         for (; index < tot_size; index += neuron_num) {
             syn_m = (syn_m + in_I[index]) * (1 - theta_m);
             syn_s = (syn_s + in_I[index]) * (1 - theta_s);
+            syn_grad = (syn_grad + in_I[index]) * (1 - theta_grad);
             
-            u = (syn_m - syn_s) * theta_s / (theta_s - theta_m);
-            delta_u[index] = u - u_last;
-            if (is_grad_exp) {
-                syn_grad = (syn_grad + in_I[index]) * (1 - theta_grad);
-                delta_u_t[index] = syn_grad * theta_grad;
+            if (!is_forward_leaky) {
+                delta_u_t[index] = syn_grad;
+                u = u_last + delta_u_t[index];
+                delta_u[index] = delta_u_t[index];
             } else {
-                delta_u_t[index] = delta_u[index];
+                u = (syn_m - syn_s) * theta_s / (theta_s - theta_m);
+                delta_u[index] = u - u_last;
+                delta_u_t[index] = is_grad_exp ? syn_grad : delta_u[index];
             }
 
             out = u >= threshold;
-            u_last = u * (1 - out);
-            syn_m = syn_m * (1 - out);
-            syn_s = syn_s * (1 - out);
+            u_last = out ? 0 : u;
+            syn_m = out ? 0 : syn_m;
+            syn_s = out ? 0 : syn_s;
+            syn_grad = out ? 0 : syn_grad;
+
             outputs[index] = out;
         }
     }
@@ -85,6 +90,7 @@ std::vector<torch::Tensor> neuron_forward_cuda(
     const float theta_s,
     const float theta_grad,
     const float threshold,
+    const float is_forward_leaky,
     const float is_grad_exp) {
 
     auto delta_u = torch::zeros_like(in_I);
@@ -102,7 +108,7 @@ std::vector<torch::Tensor> neuron_forward_cuda(
                                        delta_u.data<scalar_t>(),
                                        delta_u_t.data<scalar_t>(),
                                        outputs.data<scalar_t>(),
-                                       theta_m, theta_s, theta_grad, threshold, is_grad_exp,
+                                       theta_m, theta_s, theta_grad, threshold, is_forward_leaky, is_grad_exp,
                                        neuron_num, tot_size);
                                }));
 
