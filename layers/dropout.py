@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as f
+import global_v as glv
 
 
 class DropoutLayer(nn.Dropout3d):
@@ -16,7 +17,7 @@ class DropoutLayer(nn.Dropout3d):
         print("-----------------------------------------")
 
     def forward(self, x):
-        if self.p <= 0 or self.p >= 1:
+        if self.p <= 0 or self.p >= 1 or glv.init_flag:
             return x
         ndim = len(x.shape)
         if ndim == 3:

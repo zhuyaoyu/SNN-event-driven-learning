@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import global_v as glv
-from layers.functions import neuron_forward, neuron_backward, bn_forward, bn_backward
+from layers.functions import neuron_forward, neuron_backward, bn_forward, bn_backward, initialize
 from torch.cuda.amp import custom_fwd, custom_bwd
 
 
@@ -37,32 +37,10 @@ class LinearLayer(nn.Linear):
         print(f'Shape of weight is {list(self.weight.shape)}')
         print("-----------------------------------------")
 
-    def initialize(self, spikes):
-        avg_spike_init = glv.network_config['avg_spike_init']
-        from math import sqrt
-        T = spikes.shape[0]
-        t_start = T * 2 // 3
-
-        low, high = 0.1, 100
-        while high / low >= 1.01:
-            mid = sqrt(high * low)
-            self.bn_weight.data *= mid
-            outputs = self.forward(spikes)
-            self.bn_weight.data /= mid
-            n_neuron = outputs[0].numel()
-            avg_spike = torch.sum(outputs[t_start:]) / n_neuron
-            if avg_spike > avg_spike_init / T * (T - t_start) * 1.3:
-                high = mid
-            else:
-                low = mid
-        self.bn_weight.data *= mid
-        print(f'Average spikes per neuron = {torch.sum(outputs) / n_neuron}')
-        return self.forward(spikes)
-
     def forward(self, x, labels=None):
         if glv.init_flag:
             glv.init_flag = False
-            x = self.initialize(x)
+            x = initialize(self, x)
             glv.init_flag = True
             return x
 
@@ -136,5 +114,4 @@ class LinearFunc(torch.autograd.Function):
 
         # sum_last = grad_input.sum().item()
         # assert(ctx.is_out_layer or abs(sum_next - sum_last) < 1)
-        norm_mul = glv.network_config['norm_grad']
-        return grad_input * 0.9, grad_weight, grad_bn_w * norm_mul, grad_bn_b * norm_mul, None, None, None
+        return grad_input * 0.9, grad_weight, grad_bn_w, grad_bn_b, None, None, None

@@ -9,6 +9,43 @@ except:
     print('Cannot load cuda neuron kernel.')
 
 
+def readConfig(data, name):
+    if type(data) == int:
+        res = (data, data)
+    else: # str
+        try:
+            assert(data[0] == '(' and data[-1] == ')')
+            data = data[1:len(data)-1]
+            x, y = map(int, data.split(','))
+            res = (x, y)
+        except:
+            raise Exception(f'The format of {name} is illegal!')
+    return res
+
+
+def initialize(layer, spikes):
+    avg_spike_init = glv.network_config['avg_spike_init']
+    from math import sqrt
+    T = spikes.shape[0]
+    t_start = T * 2 // 3
+
+    low, high = 0.1, 100
+    while high / low >= 1.01:
+        mid = sqrt(high * low)
+        layer.bn_weight.data *= mid
+        outputs = layer.forward(spikes)
+        layer.bn_weight.data /= mid
+        n_neuron = outputs[0].numel()
+        avg_spike = torch.sum(outputs[t_start:]) / n_neuron
+        if avg_spike > avg_spike_init / T * (T - t_start) * 1.3:
+            high = mid
+        else:
+            low = mid
+    layer.threshold.data /= mid
+    print(f'Average spikes per neuron = {torch.sum(outputs) / n_neuron}')
+    return layer.forward(spikes)
+
+
 def norm(inputs):
     T = inputs.shape[0]
     t_start = T * 2 // 3

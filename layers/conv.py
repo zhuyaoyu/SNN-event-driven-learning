@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as f
-from layers.functions import neuron_forward, neuron_backward, bn_forward, bn_backward
+from layers.functions import neuron_forward, neuron_backward, bn_forward, bn_backward, readConfig, initialize
 import global_v as glv
 import torch.backends.cudnn as cudnn
 from torch.utils.cpp_extension import load_inline, load
@@ -24,32 +24,13 @@ class ConvLayer(nn.Conv2d):
         stride = config['stride'] if 'stride' in config else 1
         dilation = config['dilation'] if 'dilation' in config else 1
 
-        # kernel
-        if type(kernel_size) == int:
-            kernel = (kernel_size, kernel_size)
-        elif len(kernel_size) > 2:
-            raise Exception('kernelSize can only be of 1 or 2 dimension. It was: {}'.format(kernel_size.shape))
+        self.kernel = readConfig(kernel_size, 'kernelSize')
+        self.stride = readConfig(stride, 'stride')
+        self.padding = readConfig(padding, 'stride')
+        self.dilation = readConfig(dilation, 'stride')
 
-        # stride
-        if type(stride) == int:
-            stride = (stride, stride)
-        elif len(stride) > 2:
-            raise Exception('stride can be either int or tuple of size 2. It was: {}'.format(stride.shape))
-
-        # padding
-        if type(padding) == int:
-            padding = (padding, padding)
-        elif len(padding) > 2:
-            raise Exception('padding can be either int or tuple of size 2. It was: {}'.format(padding.shape))
-
-        # dilation
-        if type(dilation) == int:
-            dilation = (dilation, dilation)
-        elif len(dilation) > 2:
-            raise Exception('dilation can be either int or tuple of size 2. It was: {}'.format(dilation.shape))
-
-        super(ConvLayer, self).__init__(in_features, out_features, kernel, stride, padding, dilation, groups,
-                                        bias=False)
+        super(ConvLayer, self).__init__(in_features, out_features, self.kernel, self.stride, self.padding,
+                                        self.dilation, groups, bias=False)
         self.weight = torch.nn.Parameter(self.weight.cuda(), requires_grad=True)
         self.bn_weight = torch.nn.Parameter(torch.ones(out_features, 1, 1, 1, device='cuda'))
         self.bn_bias = torch.nn.Parameter(torch.zeros(out_features, 1, 1, 1, device='cuda'))
@@ -59,32 +40,10 @@ class ConvLayer(nn.Conv2d):
         print(f'stride = {self.stride}, padding = {self.padding}, dilation = {self.dilation}, groups = {self.groups}')
         print("-----------------------------------------")
 
-    def initialize(self, spikes):
-        avg_spike_init = glv.network_config['avg_spike_init']
-        from math import sqrt
-        T = spikes.shape[0]
-        t_start = T * 2 // 3
-
-        low, high = 0.1, 100
-        while high / low >= 1.01:
-            mid = sqrt(high * low)
-            self.bn_weight.data *= mid
-            outputs = self.forward(spikes)
-            self.bn_weight.data /= mid
-            n_neuron = outputs[0].numel()
-            avg_spike = torch.sum(outputs[t_start:]) / n_neuron
-            if avg_spike > avg_spike_init / T * (T - t_start) * 1.3:
-                high = mid
-            else:
-                low = mid
-        self.bn_weight.data *= mid
-        print(f'Average spikes per neuron = {torch.sum(outputs) / n_neuron}')
-        return self.forward(spikes)
-
     def forward(self, x):
         if glv.init_flag:
             glv.init_flag = False
-            x = self.initialize(x)
+            x = initialize(self, x)
             glv.init_flag = True
             return x
 
@@ -157,6 +116,4 @@ class ConvFunc(torch.autograd.Function):
         # sum_last = grad_input.sum().item()
         # print(f'sum_next = {sum_next}, sum_last = {sum_last}')
         # assert(abs(sum_next - sum_last) < 1)
-        norm_mul = glv.network_config['norm_grad']
-        return grad_input.reshape(T, n_batch, *inputs.shape[1:]) * 0.9, grad_weight, \
-               grad_bn_w * norm_mul, grad_bn_b * norm_mul, None, None, None
+        return grad_input.reshape(T, n_batch, *inputs.shape[1:]) * 0.9, grad_weight, grad_bn_w, grad_bn_b, None, None, None

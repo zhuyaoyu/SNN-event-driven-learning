@@ -18,20 +18,16 @@ class Network(nn.Module):
             c = layers_config[key]
             if c['type'] == 'conv':
                 self.layers.append(conv.ConvLayer(network_config, c, key))
-                # input_shape = self.layers[-1].out_shape
             elif c['type'] == 'linear':
                 self.layers.append(linear.LinearLayer(network_config, c, key))
-                # input_shape = self.layers[-1].out_shape
             elif c['type'] == 'pooling':
                 self.layers.append(pooling.PoolLayer(network_config, c, key))
-                # input_shape = self.layers[-1].out_shape
             elif c['type'] == 'dropout':
                 self.layers.append(dropout.DropoutLayer(c, key))
             else:
                 raise Exception('Undefined layer type. It is: {}'.format(c['type']))
 
         self.net = nn.Sequential(*self.layers)
-        # self.norm, self.weight = nn.ParameterList(norm), nn.ParameterList(weight)
         print("-----------------------------------------")
 
     def forward(self, inputs, labels, epoch, is_train):

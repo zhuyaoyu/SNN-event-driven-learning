@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as f
 import global_v as glv
 from torch.cuda.amp import custom_fwd, custom_bwd
+from layers.functions import readConfig
 
 
 class PoolLayer(nn.Module):
@@ -14,14 +15,7 @@ class PoolLayer(nn.Module):
         self.type = config['type']
         kernel_size = config['kernel_size']
 
-        if type(kernel_size) == int:
-            kernel = (kernel_size, kernel_size)
-        elif len(kernel_size) == 2:
-            pass
-        else:
-            raise Exception('kernelSize can only be of 1 or 2 dimension. It was: {}'.format(kernel_size.shape))
-
-        self.kernel = kernel
+        self.kernel = readConfig(kernel_size, 'kernelSize')
         # self.in_shape = in_shape
         # self.out_shape = [in_shape[0], int(in_shape[1] / kernel[0]), int(in_shape[2] / kernel[1])]
         print('pooling')

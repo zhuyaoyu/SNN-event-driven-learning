@@ -10,7 +10,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.tensorboard import SummaryWriter
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from network_parser import parse
-from datasets import loadMNIST, loadCIFAR10, loadCIFAR100, loadFashionMNIST, loadSpiking
+from datasets import loadMNIST, loadCIFAR10, loadCIFAR100, loadFashionMNIST, loadSpiking, loadSMNIST
 from datasets.utils import TTFS
 import cnns
 from utils import learningStats
@@ -22,7 +22,6 @@ import global_v as glv
 
 from sklearn.metrics import confusion_matrix
 import argparse
-
 
 log_interval = 100
 multigpu = False
@@ -162,7 +161,8 @@ def train(network, trainloader, opti, epoch, states, err):
             print('Spike_cnt is', spike_cnt)
 
             avg_oneof, avg_unique = cnt_oneof / (batch_size * batch_idx), cnt_unique / (batch_size * batch_idx)
-            print('Percentage of partially right = %.2f%%, entirely right = %.2f%%' % (avg_oneof * 100, avg_unique * 100))
+            print(
+                'Percentage of partially right = %.2f%%, entirely right = %.2f%%' % (avg_oneof * 100, avg_unique * 100))
             print()
         torch.cuda.synchronize()
         other_time += (datetime.now() - t0).total_seconds()
@@ -277,7 +277,8 @@ if __name__ == '__main__':
                     "CIFAR10": loadCIFAR10.get_cifar10,
                     "CIFAR100": loadCIFAR100.get_cifar100,
                     "DVS128Gesture": loadSpiking.get_dvs128_gesture,
-                    "CIFAR10DVS": loadSpiking.get_cifar10_dvs}
+                    "CIFAR10DVS": loadSpiking.get_cifar10_dvs,
+                    "SMNIST": loadSMNIST.get_smnist}
     try:
         trainset, testset = dataset_func[params['Network']['dataset']](data_path, params['Network'])
     except:
@@ -288,8 +289,10 @@ if __name__ == '__main__':
         train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=False, num_workers=4,
                                                    sampler=train_sampler, pin_memory=True)
     else:
-        train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=4, pin_memory=True)
-    test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=4, pin_memory=True)
+        train_loader = torch.utils.data.DataLoader(trainset, batch_size=batch_size, shuffle=True, num_workers=4,
+                                                   pin_memory=True)
+    test_loader = torch.utils.data.DataLoader(testset, batch_size=batch_size, shuffle=False, num_workers=4,
+                                              pin_memory=True)
 
     if 'model_import' not in glv.network_config:
         net = cnns.Network(list(train_loader.dataset[0][0].shape[-3:])).to(glv.rank)
@@ -322,17 +325,24 @@ if __name__ == '__main__':
     if multigpu:
         net = DDP(net, device_ids=[glv.rank], output_device=glv.rank)
     optim_type, weight_decay, lr = (glv.network_config[x] for x in ('optimizer', 'weight_decay', 'lr'))
-    assert(optim_type in ['SGD', 'Adam', 'AdamW'])
+    assert (optim_type in ['SGD', 'Adam', 'AdamW'])
 
-    # norm_param, weight_param = net.get_parameters()
+    norm_param, param = [], []
+    for layer in net.modules():
+        if layer.type in ['conv', 'linear']:
+            norm_param.extend([layer.bn_weight, layer.bn_bias])
+            param.append(layer.weight)
+
     optim_dict = {'SGD': torch.optim.SGD,
                   'Adam': torch.optim.Adam,
                   'AdamW': torch.optim.AdamW}
-    optimizer = optim_dict[optim_type](net.parameters(), lr=lr, weight_decay=weight_decay)
+    optimizer = optim_dict[optim_type]([
+        {'params': param},
+        {'params': norm_param, 'lr': lr * glv.network_config['norm_grad']}
+        ], lr=lr, weight_decay=weight_decay)
     lr_scheduler = CosineAnnealingLR(optimizer, T_max=glv.network_config['epochs'])
 
     best_acc = 0
-
     l_states = learningStats()
 
     log_dir = f"{params['Network']['log_path']}_{datetime.now().strftime('%Y%m%d-%H%M%S')}/"
