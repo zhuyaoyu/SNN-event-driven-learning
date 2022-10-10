@@ -21,7 +21,6 @@ Network:
   tau_m: 10
   tau_s: 6
   tau_grad: 5.5
-  max_dudt_inv: 123456789
 
 Layers:
   conv_1:

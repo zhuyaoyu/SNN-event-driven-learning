@@ -20,7 +20,6 @@ Network:
   tau_m: 5
   tau_s: 3
   tau_grad: 2.5
-  max_dudt_inv: 123456789
 
 Layers:
   conv_1:
@@ -34,7 +33,6 @@ Layers:
   pooling_1:
     type: "pooling"
     kernel_size: 2
-    threshold: 1
 
   conv_2:
     type: "conv"
@@ -47,7 +45,6 @@ Layers:
   pooling_2:
     type: "pooling"
     kernel_size: 2
-    threshold: 1
 
   FC_1:
     type: "linear"
@@ -59,5 +56,4 @@ Layers:
     type: "linear"
     n_inputs: 300
     n_outputs: 10
-    weight_scale: 1
     threshold: 1
