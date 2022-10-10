@@ -10,6 +10,7 @@ Network:
   optimizer: "SGD"
   lr: 0.06
   weight_decay: 0.0005
+  avg_spike_init: 1.2
   loss: "count"
   norm_grad: 0
   gradient_type: "exponential"

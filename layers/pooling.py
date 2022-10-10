@@ -38,7 +38,7 @@ class PoolLayer(nn.Module):
         return x
 
     def get_parameters(self):
-        return self.weight
+        return
 
     def forward_pass(self, x, epoch):
         y1 = self.forward(x)

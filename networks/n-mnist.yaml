@@ -3,8 +3,8 @@ Network:
   batch_size: 50
   n_steps: 30
   dataset: "NMNIST"
-  # data_path: "../../datasets/n_mnist"
-  data_path: "../../../../datasets/n_mnist"
+  data_path: "../../datasets/n_mnist"
+  # data_path: "../../../../datasets/n_mnist"
   log_path: "logs/n-mnist"
   backend: "cuda"
   optimizer: "AdamW"

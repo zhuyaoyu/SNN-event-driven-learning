@@ -54,8 +54,6 @@ def get_loss(network_config, err, outputs, labels):
     elif network_config['loss'] == "TET":
         # set target signal
         loss = err.spike_TET(outputs, labels)
-    elif network_config['loss'] == "timing":
-        loss = err.spike_timing(outputs, targets, labels)
     else:
         raise Exception('Unrecognized loss function.')
 
@@ -151,14 +149,7 @@ def train(network, trainloader, opti, epoch, states, err):
             states.print(epoch, batch_idx, (datetime.now() - start_time).total_seconds())
             print('Time consumed on loading data = %.2f, forward = %.2f, backward = %.2f, other = %.2f'
                   % (data_time, forward_time, backward_time, other_time))
-            print('Time consumed on recorded interval = %.2f' % (glv.time_use))
             data_time, forward_time, backward_time, other_time, glv.time_use = 0, 0, 0, 0, 0
-
-            spike_cnt = dict()
-            for i in range(6):
-                spike_cnt['nspike=' + str(i)] = torch.sum(spike_counts > i - 1) - torch.sum(
-                    spike_counts > i) if i < 5 else torch.sum(spike_counts > 4)
-            print('Spike_cnt is', spike_cnt)
 
             avg_oneof, avg_unique = cnt_oneof / (batch_size * batch_idx), cnt_unique / (batch_size * batch_idx)
             print(
@@ -327,15 +318,15 @@ if __name__ == '__main__':
     optim_type, weight_decay, lr = (glv.network_config[x] for x in ('optimizer', 'weight_decay', 'lr'))
     assert (optim_type in ['SGD', 'Adam', 'AdamW'])
 
-    norm_param, param = [], []
-    for layer in net.modules():
-        if layer.type in ['conv', 'linear']:
-            norm_param.extend([layer.bn_weight, layer.bn_bias])
-            param.append(layer.weight)
-
+    # norm_param, weight_param = net.get_parameters()
     optim_dict = {'SGD': torch.optim.SGD,
                   'Adam': torch.optim.Adam,
                   'AdamW': torch.optim.AdamW}
+    norm_param, param = [], []
+    for layer in net.modules():
+        if layer.type in ['conv', 'linear']:
+            norm_param.extend([layer.norm_weight, layer.norm_bias])
+            param.append(layer.weight)
     optimizer = optim_dict[optim_type]([
         {'params': param},
         {'params': norm_param, 'lr': lr * glv.network_config['norm_grad']}
@@ -343,6 +334,7 @@ if __name__ == '__main__':
     lr_scheduler = CosineAnnealingLR(optimizer, T_max=glv.network_config['epochs'])
 
     best_acc = 0
+
     l_states = learningStats()
 
     log_dir = f"{params['Network']['log_path']}_{datetime.now().strftime('%Y%m%d-%H%M%S')}/"

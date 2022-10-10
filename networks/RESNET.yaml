@@ -1,21 +1,21 @@
 Network:
   epochs: 500
   batch_size: 50
-  n_steps: 16
+  n_steps: 12
   dataset: "CIFAR10"
   data_path: "../../datasets/cifar10"
   # data_path: "../../../../datasets/cifar10"
   log_path: "logs/cifar10"
   backend: "cuda"
-  optimizer: "Adam"
+  optimizer: "AdamW"
   lr: 0.0002
-  weight_decay: 0.0005
+  weight_decay: 0.05
   loss: "count"
   norm_grad: 0
   gradient_type: "exponential"
   pooling_type: "adjusted_avg"
   n_class: 10
-  desired_count: 12
+  desired_count: 10
   undesired_count: 1
   tau_m: 7
   tau_s: 4

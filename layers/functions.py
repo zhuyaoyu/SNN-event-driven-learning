@@ -29,20 +29,19 @@ def initialize(layer, spikes):
     T = spikes.shape[0]
     t_start = T * 2 // 3
 
-    low, high = 0.1, 100
+    low, high = 0.05, 500
     while high / low >= 1.01:
         mid = sqrt(high * low)
-        layer.bn_weight.data *= mid
+        layer.norm_weight.data *= mid
         outputs = layer.forward(spikes)
-        layer.bn_weight.data /= mid
+        layer.norm_weight.data /= mid
         n_neuron = outputs[0].numel()
         avg_spike = torch.sum(outputs[t_start:]) / n_neuron
-        if avg_spike > avg_spike_init / T * (T - t_start) * 1.3:
+        if avg_spike > avg_spike_init / T * (T - t_start) * 1.2:
             high = mid
         else:
             low = mid
-    layer.threshold.data /= mid
-    print(f'Average spikes per neuron = {torch.sum(outputs) / n_neuron}')
+    layer.norm_weight.data *= mid
     return layer.forward(spikes)
 
 
@@ -56,25 +55,25 @@ def norm(inputs):
     return inputs
 
 
-def bn_forward(inputs, weight, bn_weight, bn_bias):
+def bn_forward(inputs, weight, norm_weight, norm_bias):
     # inputs = norm(inputs)
     C = weight.shape[0]
     # print(weight.shape)
     mean, var = torch.mean(weight.reshape(C, -1), dim=1), torch.std(weight.reshape(C, -1), dim=1) ** 2
     shape = (-1, 1, 1, 1) if len(weight.shape) == 4 else (-1, 1)
-    mean, var, bn_weight, bn_bias = [x.reshape(*shape) for x in [mean, var, bn_weight, bn_bias]]
-    weight_ = (weight - mean) / torch.sqrt(var + 1e-5) * bn_weight + bn_bias
+    mean, var, norm_weight, norm_bias = [x.reshape(*shape) for x in [mean, var, norm_weight, norm_bias]]
+    weight_ = (weight - mean) / torch.sqrt(var + 1e-5) * norm_weight + norm_bias
     return inputs, mean, var, weight_
 
 
-def bn_backward(grad_weight, weight, bn_weight, bn_bias, mean, var):
+def bn_backward(grad_weight, weight, norm_weight, norm_bias, mean, var):
     C = weight.shape[0]
     std_inv = 1 / torch.sqrt(var + 1e-5)
     shape = (-1, 1, 1, 1) if len(weight.shape) == 4 else (-1, 1)
-    weight_ = (weight - mean) * std_inv * bn_weight.reshape(*shape) + bn_bias.reshape(*shape)
-    grad_bn_b = torch.sum(grad_weight.reshape(C, -1), dim=1).reshape(bn_bias.shape)
-    grad_bn_w = torch.sum((grad_weight * weight_).reshape(C, -1), dim=1).reshape(bn_weight.shape)
-    grad_weight *= bn_weight.reshape(*shape)
+    weight_ = (weight - mean) * std_inv * norm_weight.reshape(*shape) + norm_bias.reshape(*shape)
+    grad_bn_b = torch.sum(grad_weight.reshape(C, -1), dim=1).reshape(norm_bias.shape)
+    grad_bn_w = torch.sum((grad_weight * weight_).reshape(C, -1), dim=1).reshape(norm_weight.shape)
+    grad_weight *= norm_weight.reshape(*shape)
     m = weight.numel() // C
     grad_var = grad_weight * (weight - mean) / m * (-0.5) * std_inv ** 3
     grad_mean = -grad_weight * std_inv

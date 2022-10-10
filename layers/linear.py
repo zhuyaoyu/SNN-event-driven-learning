@@ -27,8 +27,8 @@ class LinearLayer(nn.Linear):
 
         super(LinearLayer, self).__init__(n_inputs, n_outputs, bias=False)
         self.weight = torch.nn.Parameter(self.weight.cuda(), requires_grad=True)
-        self.bn_weight = torch.nn.Parameter(torch.ones(out_features,1, device='cuda'))
-        self.bn_bias = torch.nn.Parameter(torch.zeros(out_features,1, device='cuda'))
+        self.norm_weight = torch.nn.Parameter(torch.ones(out_features,1, device='cuda'))
+        self.norm_bias = torch.nn.Parameter(torch.zeros(out_features,1, device='cuda'))
 
         print("linear")
         print(self.name)
@@ -44,7 +44,7 @@ class LinearLayer(nn.Linear):
             glv.init_flag = True
             return x
 
-        self.weight_clipper()
+        # self.weight_clipper()
         ndim = len(x.shape)
         assert(ndim == 3 or ndim == 5)
         if ndim == 5:
@@ -54,8 +54,7 @@ class LinearLayer(nn.Linear):
         theta_m = 1 / config_n['tau_m']
         theta_s = 1 / config_n['tau_s']
         theta_grad = 1 / config_n['tau_grad'] if config_n['gradient_type'] == 'exponential' else -123456789  #instead of None
-        threshold = self.threshold
-        y = LinearFunc.apply(x, self.weight, self.bn_weight, self.bn_bias, (theta_m, theta_s, theta_grad, threshold), labels)
+        y = LinearFunc.apply(x, self.weight, self.norm_weight, self.norm_bias, (theta_m, theta_s, theta_grad, self.threshold), labels)
         return y
 
     def weight_clipper(self):
@@ -67,9 +66,9 @@ class LinearLayer(nn.Linear):
 class LinearFunc(torch.autograd.Function):
     @staticmethod
     @custom_fwd
-    def forward(ctx, inputs, weight, bn_weight, bn_bias, config, labels):
+    def forward(ctx, inputs, weight, norm_weight, norm_bias, config, labels):
         #input.shape: T * n_batch * N_in
-        inputs, mean, var, weight_ = bn_forward(inputs, weight, bn_weight, bn_bias)
+        inputs, mean, var, weight_ = bn_forward(inputs, weight, norm_weight, norm_bias)
 
         in_I = torch.matmul(inputs, weight_.t())
 
@@ -90,7 +89,7 @@ class LinearFunc(torch.autograd.Function):
             # delta_u[i1, i2, labels] = torch.maximum(delta_u[i1, i2, labels], theta_s.to(outputs))
             # delta_u_t[i1, i2, labels] = torch.maximum(delta_u_t[i1, i2, labels], theta_s.to(outputs))
 
-        ctx.save_for_backward(delta_u, delta_u_t, inputs, outputs, weight, bn_weight, bn_bias, mean, var)
+        ctx.save_for_backward(delta_u, delta_u_t, inputs, outputs, weight, norm_weight, norm_bias, mean, var)
         ctx.is_out_layer = labels != None
 
         return outputs
@@ -99,19 +98,19 @@ class LinearFunc(torch.autograd.Function):
     @custom_bwd
     def backward(ctx, grad_delta):
         # shape of grad_delta: T * n_batch * N_out
-        (delta_u, delta_u_t, inputs, outputs, weight, bn_weight, bn_bias, mean, var) = ctx.saved_tensors
+        (delta_u, delta_u_t, inputs, outputs, weight, norm_weight, norm_bias, mean, var) = ctx.saved_tensors
         grad_delta *= outputs
         # sum_next = grad_delta.sum().item()
         # print("Max of dLdt: ", abs(grad_delta).max().item())
 
         grad_in_, grad_w_ = neuron_backward(grad_delta, outputs, delta_u, delta_u_t)
-        weight_ = (weight - mean) / torch.sqrt(var + 1e-5) * bn_weight + bn_bias
+        weight_ = (weight - mean) / torch.sqrt(var + 1e-5) * norm_weight + norm_bias
 
         grad_input = torch.matmul(grad_in_, weight_) * inputs
         grad_weight = torch.sum(torch.matmul(grad_w_.transpose(1,2), inputs), dim=0)
 
-        grad_weight, grad_bn_w, grad_bn_b = bn_backward(grad_weight, weight, bn_weight, bn_bias, mean, var)
+        grad_weight, grad_bn_w, grad_bn_b = bn_backward(grad_weight, weight, norm_weight, norm_bias, mean, var)
 
         # sum_last = grad_input.sum().item()
         # assert(ctx.is_out_layer or abs(sum_next - sum_last) < 1)
-        return grad_input * 0.9, grad_weight, grad_bn_w, grad_bn_b, None, None, None
+        return grad_input * 0.85, grad_weight, grad_bn_w, grad_bn_b, None, None, None
