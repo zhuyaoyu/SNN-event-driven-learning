@@ -9,7 +9,7 @@ Network:
   backend: "cuda"
   optimizer: "AdamW"
   lr: 0.0005
-  weight_decay: 0.0005
+  weight_decay: 0.2
   avg_spike_init: 2
   loss: "count"
   gradient_type: "exponential"
