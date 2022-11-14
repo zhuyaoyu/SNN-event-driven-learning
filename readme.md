@@ -13,7 +13,9 @@ This repository is the official implementation of *Training Spiking Neural Netwo
 
 Modify the data path and network settings in the .yaml config files (in the networks folder).
 
-We have implemented two backends for our algorithm: The python backend and the cuda backend, where the cuda backend significantly acclerates the neuron functions.
+We recommend you to run the code in Linux environment, since we use pytorch cuda functions in the backward stage and the compile process is inconvenient in Windows environment.
+
+In addition, we have implemented two backends for neuron functions in our algorithm: The python backend and the cuda backend, where the cuda backend significantly accelerates the neuron functions.
 
 The backend option can be configured by setting **backend: "cuda"** or **backend: "python"** in the .yaml config files.
 
