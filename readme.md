@@ -1,6 +1,6 @@
 # **Training Spiking Neural Networks with Event-driven Backpropagation**
 
-This repository is the official implementation of *Training Spiking Neural Networks with Event-driven Backpropagation*.
+This repository is the official implementation of *Training Spiking Neural Networks with Event-driven Backpropagation* (**Neurips 2022**) \[[pdf](https://hal.science/hal-03889062v1/preview/Zhu%20et%20al.%20-%202022%20-%20Training%20Spiking%20Neural%20Networks%20with%20Event-driven%20Backpropagation.pdf)\].
 
 # Requirements
 - pytorch=1.10.0
